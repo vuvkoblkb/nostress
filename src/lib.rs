@@ -2,7 +2,7 @@ use rand::{seq::SliceRandom, Rng};
 use std::fs;
 use std::sync::Arc;
 
-/// Membaca file baris per baris, return Vec<String>
+/// Membaca file eksternal dan return Vec<String>
 pub fn load_file(filename: &str) -> Vec<String> {
     fs::read_to_string(filename)
         .unwrap_or_else(|_| String::new())
@@ -31,6 +31,15 @@ pub fn random_ip() -> String {
     )
 }
 
+/// Payload random untuk POST
+pub fn random_payload() -> String {
+    let mut rng = rand::thread_rng();
+    let len = rng.gen_range(20..200);
+    (0..len)
+        .map(|_| (0x20u8 + (rng.gen::<u8>() % 95)) as char)
+        .collect()
+}
+
 /// Semua config eksternal dalam satu struct
 pub struct ConfigLists {
     pub proxies: Arc<Vec<String>>,
@@ -46,9 +55,9 @@ pub struct ConfigLists {
 }
 
 impl ConfigLists {
-    pub fn load() -> Self {
+    pub fn load(proxyfile: &str) -> Self {
         Self {
-            proxies: Arc::new(load_file("proxies.txt")),
+            proxies: Arc::new(load_file(proxyfile)),
             referers: Arc::new(load_file("referers.txt")),
             useragents: Arc::new(load_file("useragents.txt")),
             ciphers: Arc::new(load_file("ciphers.txt")),

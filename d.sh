@@ -392,7 +392,7 @@ main() {
     echo "2. Try the sample project: cd ~/rust_super_project && cargo run"
     echo "3. Use rust aliases: cr (cargo run), cb (cargo build), etc."
     echo "4. Happy coding with Rust! 🦀"
-    echo ""
+    echo "@liqga lucu"
 }
 
 # Run main function

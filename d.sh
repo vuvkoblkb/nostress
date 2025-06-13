@@ -41,12 +41,27 @@ detect_os() {
     fi
 }
 
+# Update Ubuntu system first
+update_ubuntu_system() {
+    print_status "Updating Ubuntu system packages..."
+    
+    # Update package lists
+    sudo apt update
+    
+    # Upgrade existing packages
+    print_status "Upgrading existing packages (this may take a while)..."
+    sudo apt upgrade -y
+    
+    # Clean up
+    sudo apt autoremove -y
+    sudo apt autoclean
+    
+    print_success "Ubuntu system updated and cleaned!"
+}
+
 # Install Ubuntu system dependencies
 install_system_deps() {
     print_status "Installing Ubuntu system dependencies..."
-    
-    # Update package list
-    sudo apt update
     
     # Install essential build tools and dependencies
     sudo apt install -y \
@@ -56,16 +71,13 @@ install_system_deps() {
         pkg-config \
         libssl-dev \
         libudev-dev \
-        llvm-dev \
-        libclang-dev \
         cmake \
-        libfontconfig1-dev \
-        libfreetype6-dev \
-        libexpat1-dev \
-        libxcb-composite0-dev \
         libsqlite3-dev \
         wget \
-        unzip
+        unzip \
+        ca-certificates \
+        gnupg \
+        lsb-release
     
     print_success "Ubuntu system dependencies installed!"
 }
@@ -102,52 +114,40 @@ install_rust() {
     fi
 }
 
-# Install additional toolchains
+# Install stable toolchains only (no experimental features)
 install_toolchains() {
-    print_status "Installing additional toolchains..."
+    print_status "Installing stable Rust components..."
     
-    # Install nightly toolchain
-    rustup toolchain install nightly
-    
-    # Add useful targets
+    # Add useful stable targets
     rustup target add wasm32-unknown-unknown
     rustup target add x86_64-unknown-linux-musl
     
-    # Add components
+    # Add stable components only
     rustup component add rustfmt
     rustup component add clippy
-    rustup component add miri
     rustup component add rust-src
     
-    print_success "Additional toolchains installed!"
+    print_success "Stable Rust components installed!"
 }
 
-# Install cargo tools
+# Install stable cargo tools only
 install_cargo_tools() {
-    print_status "Installing cargo tools (this may take a while)..."
+    print_status "Installing stable cargo tools (this may take a while)..."
     
-    # Essential tools
+    # Essential stable tools only
     TOOLS=(
         "cargo-watch"          # Auto-rebuild on file changes
         "cargo-edit"           # Add/remove dependencies easily
-        "cargo-expand"         # Show macro expansions
         "cargo-audit"          # Security audit
         "cargo-outdated"       # Check for outdated dependencies
         "cargo-tree"           # Dependency tree visualization
-        "cargo-bloat"          # Binary size analysis
-        "cargo-criterion"      # Benchmarking
-        "cargo-llvm-lines"     # LLVM IR analysis
-        "cargo-asm"            # Assembly inspection
-        "hyperfine"            # Command-line benchmarking
-        "tokei"                # Code statistics
-        "mdbook"               # Documentation generator
-        "cargo-generate"       # Project templates
         "cargo-update"         # Update installed cargo tools
         "cargo-cache"          # Cargo cache management
-        "cargo-deny"           # Dependency analysis
-        "cargo-udeps"          # Find unused dependencies
-        "cargo-machete"        # Remove unused dependencies
-        "cargo-nextest"        # Next-generation test runner
+        "tokei"                # Code statistics
+        "hyperfine"            # Command-line benchmarking
+        "cargo-generate"       # Project templates
+        "cargo-nextest"        # Modern test runner
+        "mdbook"               # Documentation generator
     )
     
     for tool in "${TOOLS[@]}"; do
@@ -159,7 +159,7 @@ install_cargo_tools() {
         fi
     done
     
-    print_success "Cargo tools installation completed!"
+    print_success "Stable cargo tools installation completed!"
 }
 
 # Create sample project with powerful setup
@@ -353,7 +353,7 @@ verify_installation() {
     rustup target list --installed
     echo ""
     
-    echo "Installed components:"
+    echo "Installed stable components:"
     rustup component list --installed
     echo ""
     
@@ -365,14 +365,15 @@ verify_installation() {
 
 # Main execution
 main() {
-    echo "====================================="
-    echo "🚀 Ubuntu Rust 1.87 Super Setup 🚀"
-    echo "====================================="
+    echo "========================================="
+    echo "🚀 Ubuntu Rust 1.87 Stable Setup 🚀"
+    echo "========================================="
     echo ""
     
     detect_os
     print_status "Ubuntu Rust 1.87 Super Setup Starting..."
     
+    update_ubuntu_system
     install_system_deps
     install_rust
     install_toolchains
